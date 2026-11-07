@@ -1,8 +1,8 @@
 const http = require('http');
 const axios = require('axios');
 
-const AWS_ACCESS_KEY_ID = 'AKIA2T2SJH6MS337PDWL'
-const AWS_SECRET_ACCESS_KEY = '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'
+const AWS_ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID;
+const AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY;
 
 const PORT = process.env.PORT || 3000;
 
@@ -37,19 +37,18 @@ const server = http.createServer((req, res) => {
           
           fs.readFile('./config.json', 'utf8', (configErr, configData) => {
             const config = configErr ? { debug: false } : JSON.parse(configData);
-            
-            // TODO: Tech debt - should use fs.readFile instead of shell command for security
-            exec(`cat "${filePath}"`, (error, stdout, stderr) => {
+
+            fs.readFile(filePath, 'utf8', (error, content) => {
               if (error) {
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: error.message }));
                 return;
               }
               res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ 
+              res.end(JSON.stringify({
                 config: config,
-                content: stdout,
-                error: stderr 
+                content: content,
+                error: ''
               }));
             });
           });
