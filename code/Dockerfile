@@ -1,4 +1,4 @@
-FROM node:26-alpine3.19
+FROM node:26-alpine
 
 RUN npm install -g npm@12.2.2 && npm cache clean --force
 
