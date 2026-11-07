@@ -11,55 +11,54 @@ jobs:
   # 🚧 REPLACE THIS ENTIRE 'jobs:' SECTION WITH WORKSHOP CONTENT! 🚧
   # Copy from: workshop/pipeline_scan/{tool}/workflow.yml
 
-  pipeline-scan:
-    name: Run zizmor 🌈
+  secrets-scan:
+    name: Secrets Scan with TruffleHog
     runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-      contents: read # only needed for private repos
-      actions: read # only needed for private repos
     outputs:
       result: ${{ steps.scan-result.outputs.result }}
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: false
+          fetch-depth: 0
 
-      - name: Run zizmor 🌈
-        id: zizmor
-        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd
-        with:
-          min-severity: "high"
-          # Disable online audits — they hard-crash the run on any GitHub API HTTP error
-          # (see zizmor#1252 / #1874).
-          online-audits: "false"
+      - name: Run TruffleHog secrets scanner
+        id: scan-tool
+        run: |
+          # Install TruffleHog
+          curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /usr/local/bin
+
+          # Use --json so the next step can produce a uniform "Summarize findings"
+          # report (same shape as the other workshop modules).
+          # Include `unverified` so detected-but-unverifiable secrets still fail the build
+          # (the workshop's didactic AKIA is invalid and would otherwise be silently dropped).
+          trufflehog filesystem . --results=verified,unknown,unverified --json > trufflehog.json
+
+          if [ -s trufflehog.json ]; then
+            exit 1
+          fi
 
       - name: Summarize findings
-        id: summarize
-        if: always() && steps.zizmor.outputs.output-file != ''
+        if: always() && hashFiles('trufflehog.json') != ''
         run: |
-          SARIF="${{ steps.zizmor.outputs.output-file }}"
-          COUNT=$(jq '[.runs[].results[]] | length' "$SARIF")
-          if [ "${COUNT:-0}" -eq 0 ]; then
+          REPORT=trufflehog.json
+          if [ ! -s "$REPORT" ]; then
             echo "✅ No security alerts"
           else
-            echo "❌ Found $COUNT zizmor finding(s):"
-            jq -r '.runs[].results[] |
-              "  - \(.ruleId) | \(.message.text)\n      \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine // 1)"' \
-              "$SARIF"
-            exit 1
+            COUNT=$(jq -s 'length' "$REPORT")
+            echo "❌ Found $COUNT TruffleHog finding(s):"
+            jq -r '"  - \(.DetectorName) | verified=\(.Verified)\n      \(.SourceMetadata.Data.Filesystem.file):\(.SourceMetadata.Data.Filesystem.line // 1)"' "$REPORT"
           fi
 
       - name: Set scan result
         id: scan-result
         if: always()
         run: |
-          if [ "${{ steps.zizmor.outcome }}" == "success" ] && [ "${{ steps.summarize.outcome }}" != "failure" ]; then
+          if [ "${{ steps.scan-tool.outcome }}" == "success" ]; then
             echo "result=success" >> "$GITHUB_OUTPUT"
-            echo "✅ Pipeline scan passed - no security issues detected"
+            echo "✅ Secrets scan passed - no secrets detected"
           else
             echo "result=failure" >> "$GITHUB_OUTPUT"
-            echo "❌ Pipeline scan failed - security issues detected in workflows"
+            echo "❌ Secrets scan failed - secrets detected in repository"
             exit 1
           fi
